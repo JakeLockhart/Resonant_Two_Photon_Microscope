@@ -1,18 +1,33 @@
-function [PowerMeter, DirectoryInfo] = PowerMeasurement(SaveResults, ReferencePower)
+function PowerMeter = PowerMeasurement(SaveResults, ReferencePower)
     % <Documentation>
         % PowerMeasurement()
-        %   
+        %   Import, process, and (optionally) save data from ThorLabs Power Meter
         %   Created by: jsl5865
         %   
         % Syntax:
-        %   PowerMeter = PowerMeasurement
+        %   PowerMeter = PowerMeasurement(SaveResults, ReferencePower)
         %
         % Description:
         %   
         % Input:
+        %   SaveResults     - Character specifying whether to save processed results:
+        %                     'Save'  : Write output data to files
+        %                     'xSave' : Do not save output files.
+        %   ReferencePower  - Numeric vector specifying reference power values used for output matching.
         %   
         % Output:
-        %   
+        %   PowerMeter    - Cell array of structs, each containing:
+        %                   Name        : Filename 
+        %                   Header      : Raw header lines from the file.
+        %                   Wavelength  : Laser wavelength extracted from the header (nm).
+        %                   RawData     : Table of imported raw power data.
+        %                   Data        : Struct with processed fields:
+        %                                   TimeStamp       - Time relative to start (seconds).
+        %                                   Power           - Power values in mW.
+        %                                   PeakPower       - Detected peak power values.
+        %                                   PeakTimeStamp   - Timestamps corresponding to peaks.
+        %                                   Fit             - Struct with polynomial fit results (Power, Time).
+        %                   Output      : (If saved) Matrix combining ReferencePower and processed power values.
     % <End Documentation>
 
     arguments
