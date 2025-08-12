@@ -1,94 +1,115 @@
-%%  Resonant 2Photon Power (R2P) Measurement
-%   Problem:
-%       Measuring the power of the resonant 2photon by manually altering
-%       the power on the MScan software and recording the signal from the
-%       power meter is relatively inefficient (time intensive and subject
-%       to examiner error). 
-%       By setting Mscan to average multiple frames and using the automatic 
-%       intensity control (linear) to alter the power intensity, a graph of
-%       the R2P power intensity vs laser output can be created.
-%   Directions:
-%       Create a folder that contains all .txt files obtained from the
-%       ThorLabs Power Meter. This script will prompt you to select that
-%       folder.
-%   Output:
-%       Two main outputs: a set of graphs and a summary table. Each .txt
-%       file will be plotted and specified input laser intensity
-%       percentages will be shown with respect to the output laser
-%       intensity. The summary table will provide data that can be copied
-%       to the excel sheet on google drive to record the R2P.
+function [PowerMeter, DirectoryInfo] = PowerMeasurement(SaveResults, ReferencePower)
+    % <Documentation>
+        % PowerMeasurement()
+        %   
+        %   Created by: jsl5865
+        %   
+        % Syntax:
+        %   PowerMeter = PowerMeasurement
+        %
+        % Description:
+        %   
+        % Input:
+        %   
+        % Output:
+        %   
+    % <End Documentation>
 
-function Result = PowerMeasurement
-    %% System Properties
-    SystemProperties.FilePath.GetFolder = uigetdir('*.*','Select a file');                          % Choose folder path location
-        SystemProperties.FilePath.Address = SystemProperties.FilePath.GetFolder + "\*.txt";         % Convert to filepath
-        SystemProperties.FilePath.Folder = dir(SystemProperties.FilePath.Address);                  % Identify the folder directory 
-        SystemProperties.FilePath.Data.Length = length(SystemProperties.FilePath.Folder);           % Determine the number of files in folder directory
-        SystemProperties.FilePath.Data.Address = erase(SystemProperties.FilePath.Address,"*.txt");  % Create beginning address for file path
-    SystemProperties.Threshold = 1;                                                                 % Adjust minimum threshold to remove data before/after active recording
-    
-    %% Data Processing
-    for i = 1:SystemProperties.FilePath.Data.Length                                                                                 % Begin for loop to iterate over individual files
-        SystemProperties.FilePath.Data.Name{i} = erase(SystemProperties.FilePath.Folder(i).name,".txt");                            % Create names of individual files based only on MScan wavelength
-            if SystemProperties.FilePath.Data.Name(i) == "Notes"; continue; end
-            SystemProperties.ImportOptions = detectImportOptions(fullfile(SystemProperties.FilePath.Data.Address, SystemProperties.FilePath.Folder(i).name));   % Fix MM/dd/yyyy format
-            SystemProperties.ImportOptions = setvaropts(SystemProperties.ImportOptions, 'Var1', 'InputFormat', 'MM/dd/yyyy hh:mm:ss.SSS a');                    % Fix MM/dd/yyyy format
-        R2Pm.RawData{i} = readtable(fullfile(SystemProperties.FilePath.Data.Address, SystemProperties.FilePath.Folder(i).name),SystemProperties.ImportOptions); % Read data from individual files (full file path for each file contained)
-    
-        R2Pm.Data{i} = table;                                                                               % Create table for processing data 
-            R2Pm.Data{i}.DateTime = R2Pm.RawData{i}.Var1;                                                   % Insert time (DateTime format) variable into table
-            R2Pm.Data{i}.ReferenceTime = datenum(R2Pm.RawData{i}.Var1);                                     % Insert reference time (time since recording starts) variable into table. Convert from datetime to number format
-            R2Pm.Data{i}.Intensity = R2Pm.RawData{i}.Var2*1000;                                             % Insert laser intensity variable into table. Multiply x1000 to convert power to mW units
-            R2Pm.Data{i} = R2Pm.Data{i}(~(R2Pm.Data{i}.Intensity < SystemProperties.Threshold),:);          % Remove all rows that give power intensity below threshold
-                R2Pm.Data{i}.DateTime = R2Pm.Data{i}.DateTime - R2Pm.Data{i}.DateTime(1);                   % Reset time (DateTime format) variable to 0
-                R2Pm.Data{i}.ReferenceTime = R2Pm.Data{i}.ReferenceTime - R2Pm.Data{i}.ReferenceTime(1);    % Reset time (number format) variable to 0
-        R2Pm.Results{i} = table;                                                                                        % Create table for results
-            [R2Pm.Results{i}.OutputIntensity, index] = findpeaks([R2Pm.Data{i}.Intensity]);                             % Find local maximum laser power intensities and associated index
-            R2Pm.Results{i}.Time = R2Pm.Data{i}.ReferenceTime(index);                                                   % Determine time variable based on index
-            R2Pm.Results{i}.InputIntensity = [0, 100*((1:size(R2Pm.Results{i},1)-1) / (size(R2Pm.Results{i},1)-1))]';   % Create input power intensity based on percentages (actually input for MScan)
-        R2Pm.Analysis{i} = table;                                                                                                                                           % Create table for data analysis
-            R2Pm.Analysis{i}.InterestValues = [0:5:70,80:10:100]';                                                                                                          % Power values of interest as defined by excel sheet
-                for j = 1:length(R2Pm.Analysis{i}.InterestValues)                                                                                                           % Begin for loop to iterate over values of interest
-                    R2Pm.Analysis{i}.Time(j,1) = interp1(R2Pm.Results{i}.InputIntensity, R2Pm.Results{i}.Time,R2Pm.Analysis{i}.InterestValues(j));                          % Interpolate input intensity for scanning time based on values of interest
-                    R2Pm.Analysis{i}.OutputIntensity(j,1) = interp1(R2Pm.Results{i}.InputIntensity, R2Pm.Results{i}.OutputIntensity,R2Pm.Analysis{i}.InterestValues(j));    % Interpolate input intensity for output intensity based on values of interest 
-                end                                                                                                                                                         % End for loop
-        R2Pm.Final.RawFinal = table;                                    % Create table of useful information
-        R2Pm.Final.Final = table;                                       % Create table for output values
-            R2Pm.Final.Raw(:,1) = R2Pm.Analysis{1}.InterestValues;      % First column provides the power input percentages
-            R2Pm.Final.Raw(:,i+1) = R2Pm.Analysis{i}.OutputIntensity;   % All following columns provide the measured output intensity
-            R2Pm.Final.RawFinal = array2table(R2Pm.Final.Raw);          % Collect useful data into table
-    end                                                                 % End for loop
-    
-    %% Plot & Output
-    
-    for i = 1:SystemProperties.FilePath.Data.Length
-        if SystemProperties.FilePath.Data.Name(i) == "Notes"
-            continue
-        end
-        figure(i)                                                                                                                                   % Create Plots
-        plot(R2Pm.Data{i}.DateTime, R2Pm.Data{i}.Intensity, 'Color', [0 0.4470 0.7410]); hold on;
-        plot(R2Pm.Results{i}.Time, R2Pm.Results{i}.OutputIntensity, 'red*'); hold on;
-        plot(R2Pm.Analysis{i}.Time,R2Pm.Analysis{i}.OutputIntensity,'k.','MarkerSize',20); hold on;
-        title({'Resonant 2Photon Laser Power Measurement';  ['(', char(SystemProperties.FilePath.Data.Name(i)),'nm)']},'Interpreter','none')
-        xlabel('Session Duration [min]'); ylabel('Laser Power Output Intensity [mW]')
-        for j = 1:length(R2Pm.Analysis{i}.InterestValues)
-             xline(R2Pm.Analysis{i}.Time(j),'-',{"Input Laser Power = " + num2str(R2Pm.Analysis{i}.InterestValues(j))+'%'})
-        end
-        R2Pm.Final.RawFinal.Properties.VariableNames(1) = "Input Laser Intensity [%]";                                                              % Display results
-        R2Pm.Final.VarList = sprintf('Var%d',i+1);
-        R2Pm.Final.RawFinal = renamevars(R2Pm.Final.RawFinal,R2Pm.Final.VarList, SystemProperties.FilePath.Data.Name{i} + " Output Intensity [mW]");
+    arguments
+        SaveResults char {mustBeMember(SaveResults, {'Save', 'xSave'})} = 'xSave'
+        ReferencePower (1,:) double = [0:5:70, 80:10:100]
     end
 
+    %% Initialization
+        addpath("C:\Workspace\LabScripts\General_Functions");
+        zap
+        DirectoryInfo = FileLookup("txt", "AllSubFolders");
 
-    for i = 1:length(R2Pm.Final.RawFinal.Properties.VariableNames)
-        R2Pm.Final.Names(i) = string(cell2mat(R2Pm.Final.RawFinal.Properties.VariableNames(i)));
-        if R2Pm.Final.Names(i) == "Input Laser Intensity [%]"
-            continue
+    %% Validate file headers to confirm .txt file originates from ThorLabs power meter 
+        ResonantHeader = 'PM100D  SN:P0008073  Firmware: 2.4.0 -- Sensor: S425C  SN:1800583';
+        GalvoHeader = 'PM100D  SN:P0019315  Firmware: 2.5.0 -- Sensor: S310C  SN:1004145';
+        ValidHeader = {ResonantHeader, GalvoHeader};
+        PowerMeter = cell(1, DirectoryInfo.FileCount);
+
+    %% Collect power meter data
+        for i = 1:DirectoryInfo.FileCount
+            FileIdentifier = fopen(DirectoryInfo.Path(i), 'rt');
+            Header1 = fgetl(FileIdentifier);
+            Header2 = fgetl(FileIdentifier);
+            fclose(FileIdentifier);
+
+            if ~ismember(Header1, ValidHeader)
+                continue
+            else
+                Wavelength_Token = regexp(Header2, 'Wave (\d+)nm', 'tokens');
+                Wavelength = str2double(Wavelength_Token{1}{1});
+
+                ImportOptions = detectImportOptions(DirectoryInfo.Path(i), "FileType", "text", "NumHeaderLines", 2, "Delimiter", '\t');
+                ImportOptions.VariableNames = {'TimeStamp', 'Power', 'Unit'};
+                ImportOptions = setvaropts(ImportOptions, 'TimeStamp', 'InputFormat', 'MM/dd/yyyy hh:mm:ss.SSS a');
+                TempFile = readtable(DirectoryInfo.Path(i), ImportOptions);
+
+                [~, PowerMeter{i}.Name, ~] = fileparts(DirectoryInfo.Path(i));
+                PowerMeter{i}.Header = sprintf('%s\n%s', Header1, Header2);
+                PowerMeter{i}.Wavelength = Wavelength;
+                PowerMeter{i}.RawData = TempFile;
+            end
         end
-        R2Pm.Final.IsolatedNames(i) = str2double(erase(erase(R2Pm.Final.Names(i),"2024_12_10_PM_LogData_")," Output Intensity [mW]"));
-    end
-    [~,index] = sort(R2Pm.Final.IsolatedNames);
-    Result = R2Pm.Final.RawFinal(:,R2Pm.Final.Names(index));
-    
-    end
+        PowerMeter = PowerMeter(~cellfun(@isempty, PowerMeter));
 
+    %% Process power meter data
+        for i = 1:length(PowerMeter)
+            %% Create time stamp from 0s->end and convert power data to mW
+                StartTime = PowerMeter{i}.RawData(1,'TimeStamp');
+                PowerMeter{i}.Data.TimeStamp = table2array(PowerMeter{i}.RawData(:, 'TimeStamp') - StartTime);
+                PowerMeter{i}.Data.Power = table2array(PowerMeter{i}.RawData(:, 'Power') .* 1000);
+
+            %% Define parameters for findpeaks
+                MinPeakProminence = 0.01 * range(PowerMeter{i}.Data.Power);
+
+                SamplingInverval = seconds(median(diff(PowerMeter{i}.RawData.TimeStamp)));
+                ExpectedPulseWidth = 3;
+                MinPeakDistance = round(ExpectedPulseWidth / SamplingInverval);
+
+            %% Identify peaks
+                [Peak, Index] = findpeaks(PowerMeter{i}.Data.Power, "MinPeakProminence", MinPeakProminence, "MinPeakDistance", MinPeakDistance);
+                PowerMeter{i}.Data.PeakPower = Peak;
+                PowerMeter{i}.Data.PeakTimeStamp = PowerMeter{i}.Data.TimeStamp(Index);
+            
+            %% Polynomial fit peak values
+                Time = seconds(PowerMeter{i}.Data.PeakTimeStamp - PowerMeter{i}.Data.PeakTimeStamp(1));
+                Power = PowerMeter{i}.Data.PeakPower;
+                Degree = 5;
+
+                [PolyCoeff, FitInfo, Mu] = polyfit(Time, Power, Degree);
+
+                SmoothTime = linspace(min(Time), max(Time), 101);
+                PowerMeter{i}.Data.Fit.Power = polyval(PolyCoeff, SmoothTime, FitInfo, Mu);
+                PowerMeter{i}.Data.Fit.Time = PowerMeter{i}.Data.PeakTimeStamp(1) + seconds(SmoothTime);
+
+            %% Identify power at reference inputs
+            figure
+            hold on
+            plot(PowerMeter{i}.Data.TimeStamp, PowerMeter{i}.Data.Power, 'b-', ...
+                'DisplayName', 'Power');
+            plot(PowerMeter{i}.Data.Fit.Time, PowerMeter{i}.Data.Fit.Power, 'k-', 'LineWidth', 2, ...
+                'DisplayName', sprintf('Polyfit Peaks (deg %d)', Degree));
+            plot(PowerMeter{i}.Data.Fit.Time, PowerMeter{i}.Data.Fit.Power, 'r.');
+            axis tight
+            xlabel('Time [hh:mm:ss]')
+            ylabel('Power [mW]')
+            title(sprintf('Laser Power Measurement\n%s\nWavelength: %d', PowerMeter{i}.Name, PowerMeter{i}.Wavelength), "Interpreter", "none")
+
+        end
+
+    %% Output power meter results
+        switch SaveResults
+            case 'Save'
+                for i = 1:length(PowerMeter)
+                    PowerMeter{i}.Output = [ReferencePower', PowerMeter{i}.Data.MScan_Power'];
+                    writematrix(PowerMeter{i}.Output, sprintf('Power Measurement (%dnm)', PowerMeter{i}.Wavelength))
+                end
+            case 'xSave'
+                return
+        end
+end
