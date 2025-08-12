@@ -32,7 +32,7 @@ function PowerMeter = PowerMeasurement(SaveResults, ReferencePower)
 
     arguments
         SaveResults char {mustBeMember(SaveResults, {'Save', 'xSave'})} = 'xSave'
-        ReferencePower (1,:) double = [0:5:70, 80:10:100]
+        ReferencePower (1,:) double = [0:5:20, 30:10:100]
     end
 
     %% Initialization
@@ -64,6 +64,7 @@ function PowerMeter = PowerMeasurement(SaveResults, ReferencePower)
                 ImportOptions = setvaropts(ImportOptions, 'TimeStamp', 'InputFormat', 'MM/dd/yyyy hh:mm:ss.SSS a');
                 TempFile = readtable(DirectoryInfo.Path(i), ImportOptions);
 
+                FileCreationDate{i} = string(regexp(DirectoryInfo.FolderInfo(i).date, '^\d{2}-[A-Za-z]{3}-\d{4}', 'match', 'once'));
                 [~, PowerMeter{i}.Name, ~] = fileparts(DirectoryInfo.Path(i));
                 PowerMeter{i}.Header = sprintf('%s\n%s', Header1, Header2);
                 PowerMeter{i}.Wavelength = Wavelength;
@@ -103,17 +104,37 @@ function PowerMeter = PowerMeasurement(SaveResults, ReferencePower)
                 PowerMeter{i}.Data.Fit.Time = PowerMeter{i}.Data.PeakTimeStamp(1) + seconds(SmoothTime);
 
             %% Identify power at reference inputs
-            figure
-            hold on
-            plot(PowerMeter{i}.Data.TimeStamp, PowerMeter{i}.Data.Power, 'b-', ...
-                'DisplayName', 'Power');
-            plot(PowerMeter{i}.Data.Fit.Time, PowerMeter{i}.Data.Fit.Power, 'k-', 'LineWidth', 2, ...
-                'DisplayName', sprintf('Polyfit Peaks (deg %d)', Degree));
-            plot(PowerMeter{i}.Data.Fit.Time, PowerMeter{i}.Data.Fit.Power, 'r.');
-            axis tight
-            xlabel('Time [hh:mm:ss]')
-            ylabel('Power [mW]')
-            title(sprintf('Laser Power Measurement\n%s\nWavelength: %d', PowerMeter{i}.Name, PowerMeter{i}.Wavelength), "Interpreter", "none")
+                PowerInput = 0:100;
+                PowerMeter{i}.Results.AllPowers = [PowerInput', seconds(PowerMeter{i}.Data.Fit.Time)', PowerMeter{i}.Data.Fit.Power'];
+
+                InterpolateTime = interp1(PowerInput, seconds(PowerMeter{i}.Data.Fit.Time), ReferencePower);
+                InterpolatePower = interp1(PowerInput, PowerMeter{i}.Data.Fit.Power, ReferencePower);
+                
+                PowerMeter{i}.Results.Reference = [ReferencePower', InterpolateTime', InterpolatePower'];
+                PowerMeter{i}.Results.Final = [ReferencePower', InterpolatePower'];
+
+                for j = 1:length(ReferencePower)
+                    Labels{j} = sprintf('%d%% at %.2fmW', ReferencePower(j), PowerMeter{i}.Results.Final(j,2));
+                end
+
+
+                
+
+            %% Plot
+                figure
+                hold on
+                StringFormat = repmat('%s\n', 1, length(Labels));
+                Labels = string(sprintf(StringFormat, Labels{:}));
+
+                plot(PowerMeter{i}.Data.TimeStamp, PowerMeter{i}.Data.Power, 'b-', 'DisplayName', 'Power', 'HandleVisibility', 'off');
+                plot(PowerMeter{i}.Data.Fit.Time, PowerMeter{i}.Data.Fit.Power, 'k-', 'LineWidth', 2, 'DisplayName', sprintf('Polyfit Peaks (deg %d)', Degree), 'HandleVisibility', 'on');
+                plot(PowerMeter{i}.Data.Fit.Time, PowerMeter{i}.Data.Fit.Power, 'r.', 'HandleVisibility', 'off');
+                
+                legend(Labels, "Location", "best")
+                axis tight
+                xlabel('Time [hh:mm:ss]')
+                ylabel('Power [mW]')
+                title(sprintf('Laser Power Measurement\n%s\nWavelength: %d', PowerMeter{i}.Name, PowerMeter{i}.Wavelength), "Interpreter", "none")
 
         end
 
@@ -121,8 +142,9 @@ function PowerMeter = PowerMeasurement(SaveResults, ReferencePower)
         switch SaveResults
             case 'Save'
                 for i = 1:length(PowerMeter)
-                    PowerMeter{i}.Output = [ReferencePower', PowerMeter{i}.Data.MScan_Power'];
-                    writematrix(PowerMeter{i}.Output, sprintf('Power Measurement (%dnm)', PowerMeter{i}.Wavelength))
+                    PowerMeasurementOutput = table(PowerMeter{i}.Results.Final(:,1), PowerMeter{i}.Results.Final(:,2), 'VariableNames', {'Input Power [%]', 'Laser Power Output [mW]'});
+                    FileName = sprintf('Power Measurement (%s, %dnm)', FileCreationDate{i}, PowerMeter{i}.Wavelength);
+                    writetable(PowerMeasurementOutput, FileName, 'Delimiter', '\t')
                 end
             case 'xSave'
                 return
